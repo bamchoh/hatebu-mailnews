@@ -1,0 +1,28 @@
+name: Send Feed Mail
+
+on:
+  schedule:
+    - cron: "0 23 * * *" # UTC 23:00 = JST 08:00
+  workflow_dispatch:
+
+jobs:
+  send-feed-mail:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: go run .
