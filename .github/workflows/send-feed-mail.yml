@@ -2,7 +2,7 @@ name: Send Feed Mail
 
 on:
   schedule:
-    - cron: "0 23 * * *" # UTC 23:00 = JST 08:00
+    - cron: "0 21 * * *" # UTC 21:00 = JST 06:00
   workflow_dispatch:
 
 jobs:

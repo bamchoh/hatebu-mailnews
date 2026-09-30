@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
-	"html"
 	"log"
 	"offline-hatena/hatena"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/andygrunwald/go-trending"
 	"github.com/joho/godotenv"
 	"github.com/mmcdole/gofeed"
 )
@@ -110,90 +110,55 @@ func htmlBuilder(feed *gofeed.Feed) string {
 	return articleHTML.String()
 }
 
-func markdownBuilder(feed *gofeed.Feed) string {
-	var articleMarkdown strings.Builder
+func githubTrendingHTMLBuilder(projects []trending.Project) string {
+	var articleHTML strings.Builder
 
-	articleMarkdown.WriteString(
-		"# はてなブックマーク ホットエントリー（IT）\n\n",
-	)
+	articleHTML.WriteString(`
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+`)
 
-	for _, item := range feed.Items {
-		if item.Link == "" {
-			continue
-		}
-
-		comments, err := hatena.GetTop5BookmarkCommentsWithStars(item.Link)
-		if err != nil {
-			fmt.Fprintf(
-				os.Stderr,
-				"コメント取得エラー: %s: %v\n",
-				item.Link,
-				err,
-			)
-			comments = nil
-		}
-
-		// カスタムフィールド
-		bookmarkCount := item.Extensions["hatena"]["bookmarkcount"]
-		imageURL := item.Extensions["hatena"]["imageurl"]
-		title := html.EscapeString(item.Title)
-		description := html.EscapeString(item.Description)
-
-		articleMarkdown.WriteString(
+	for _, project := range projects {
+		articleHTML.WriteString(
 			fmt.Sprintf(
-				"## %s - ☆%s\n\n",
-				title,
-				bookmarkCount[0].Value,
+				"<h2><a href=\"%s\">%s</a></h2>\n",
+				project.URL,
+				project.Name,
 			),
 		)
-
-		if len(imageURL) > 0 {
-			articleMarkdown.WriteString(
+		articleHTML.WriteString(
+			fmt.Sprintf(
+				"<p>%s</p>\n",
+				project.Description,
+			),
+		)
+		articleHTML.WriteString(
+			fmt.Sprintf(
+				"<p>★ %d</p>\n",
+				project.Stars,
+			),
+		)
+		if len(project.Language) > 0 {
+			articleHTML.WriteString(
 				fmt.Sprintf(
-					"![%s](%s)\n\n",
-					title,
-					imageURL[0].Value,
+					"<p>言語: %s</p>\n",
+					project.Language,
 				),
-			)
-		}
-
-		articleMarkdown.WriteString(
-			fmt.Sprintf(
-				"%s\n\n",
-				description,
-			),
-		)
-
-		articleMarkdown.WriteString(
-			fmt.Sprintf(
-				"- URL: %s\n\n",
-				item.Link,
-			),
-		)
-
-		if len(comments) > 0 {
-			articleMarkdown.WriteString(
-				"<details>\n  <summary>注目コメント</summary>\n\n",
-			)
-
-			for _, comment := range comments {
-				articleMarkdown.WriteString(
-					fmt.Sprintf(
-						"  - %s (**%s** ★%d)\n",
-						comment.Comment,
-						comment.User,
-						comment.StarCount,
-					),
-				)
-			}
-
-			articleMarkdown.WriteString(
-				"\n</details>\n\n",
 			)
 		}
 	}
 
-	return articleMarkdown.String()
+	articleHTML.WriteString(`
+</body>
+</html>
+`)
+
+	return articleHTML.String()
 }
 
 func sendFeedMail(rssURL string, subject string) error {
@@ -217,9 +182,51 @@ func sendFeedMail(rssURL string, subject string) error {
 	)
 }
 
+func githubTrending(dateRange, language string) error {
+	trend := trending.NewTrending()
+
+	// Show projects of today
+	projects, err := trend.GetProjects(dateRange, language)
+	if err != nil {
+		return err
+	}
+
+	githubTrendingHTML := githubTrendingHTMLBuilder(projects)
+
+	var subject string
+	if language != "" {
+		subject = fmt.Sprintf(
+			"GitHub Trending (%s) (%s) (%s)",
+			dateRange,
+			language,
+			time.Now().Format("2006/01/02"),
+		)
+	} else {
+		subject = fmt.Sprintf(
+			"GitHub Trending (%s) (Any) (%s)",
+			dateRange,
+			time.Now().Format("2006/01/02"),
+		)
+	}
+
+	return sendMail(
+		os.Getenv("GMAIL_ADDRESS"),
+		subject,
+		githubTrendingHTML,
+	)
+}
+
 func main() {
 	if err := godotenv.Load(); err != nil {
 		fmt.Println(".env not found, using environment variables")
+	}
+
+	if err := githubTrending(trending.TimeToday, "go"); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := githubTrending(trending.TimeToday, ""); err != nil {
+		log.Fatal(err)
 	}
 
 	rssList := []map[string]string{
