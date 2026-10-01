@@ -2,7 +2,7 @@ name: Send Feed Mail
 
 on:
   schedule:
-    - cron: "0 21 * * *" # UTC 21:00 = JST 06:00
+    - cron: "45 18 * * *" # UTC 18:45 = JST 03:45 → Github の遅延で実質 JST 07:00 くらいに実行される
   workflow_dispatch:
 
 jobs:
