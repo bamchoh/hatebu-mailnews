@@ -1,9 +1,10 @@
 module offline-hatena
 
-go 1.25.6
+go 1.26
 
 require (
 	github.com/andygrunwald/go-trending v0.0.0-20260212184622-5a218a43789e
+	github.com/aws/aws-lambda-go v1.55.1
 	github.com/joho/godotenv v1.5.1
 	github.com/mmcdole/gofeed v1.5.0
 	modernc.org/sqlite v1.59.0

@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"offline-hatena/hatena"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/andygrunwald/go-trending"
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/joho/godotenv"
 	"github.com/mmcdole/gofeed"
 )
@@ -216,17 +216,17 @@ func githubTrending(dateRange, language string) error {
 	)
 }
 
-func main() {
+func run() error {
 	if err := godotenv.Load(); err != nil {
 		fmt.Println(".env not found, using environment variables")
 	}
 
 	if err := githubTrending(trending.TimeToday, "go"); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	if err := githubTrending(trending.TimeToday, ""); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	rssList := []map[string]string{
@@ -242,7 +242,13 @@ func main() {
 
 	for _, rss := range rssList {
 		if err := sendFeedMail(rss["url"], rss["subject"]); err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
+
+	return nil
+}
+
+func main() {
+	lambda.Start(run)
 }
