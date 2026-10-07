@@ -7,6 +7,7 @@ require (
 	github.com/aws/aws-lambda-go v1.55.1
 	github.com/joho/godotenv v1.5.1
 	github.com/mmcdole/gofeed v1.5.0
+	golang.org/x/sync v0.22.0
 	modernc.org/sqlite v1.59.0
 )
 

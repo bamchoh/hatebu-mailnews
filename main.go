@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"offline-hatena/hatena"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -11,104 +11,8 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/joho/godotenv"
 	"github.com/mmcdole/gofeed"
+	"golang.org/x/sync/errgroup"
 )
-
-func htmlBuilder(feed *gofeed.Feed) string {
-	var articleHTML strings.Builder
-
-	articleHTML.WriteString(`
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body>
-`)
-
-	for _, item := range feed.Items {
-		if item.Link == "" {
-			continue
-		}
-
-		comments, err := hatena.GetTop5BookmarkCommentsWithStars(item.Link)
-		if err != nil {
-			fmt.Fprintf(
-				os.Stderr,
-				"コメント取得エラー: %s: %v\n",
-				item.Link,
-				err,
-			)
-			comments = nil
-		}
-
-		// カスタムフィールド
-		bookmarkCount := item.Extensions["hatena"]["bookmarkcount"]
-		imageURL := item.Extensions["hatena"]["imageurl"]
-
-		articleHTML.WriteString(
-			fmt.Sprintf(
-				"<h2>%s - ☆%s</h2>\n",
-				item.Title,
-				bookmarkCount[0].Value,
-			),
-		)
-
-		if len(imageURL) > 0 {
-			articleHTML.WriteString(
-				fmt.Sprintf(
-					`<img src="%s" alt="%s" style="max-width:100%%;height:auto;"><br><br>`+"\n",
-					imageURL[0].Value,
-					item.Title,
-				),
-			)
-		}
-
-		articleHTML.WriteString(
-			fmt.Sprintf(
-				"<p>%s</p>\n",
-				item.Description,
-			),
-		)
-
-		articleHTML.WriteString(
-			fmt.Sprintf(
-				`<p><a href="%s">記事を読む</a></p>`+"\n",
-				item.Link,
-			),
-		)
-
-		if len(comments) > 0 {
-			articleHTML.WriteString(`
-<h3>注目コメント</h3>
-<ul>
-`)
-
-			for _, comment := range comments {
-				articleHTML.WriteString(
-					fmt.Sprintf(
-						"<li>%s <strong>%s</strong> ★%d</li>\n",
-						comment.Comment,
-						comment.User,
-						comment.StarCount,
-					),
-				)
-			}
-
-			articleHTML.WriteString(`
-</ul>
-<br>
-`)
-		}
-	}
-
-	articleHTML.WriteString(`
-</body>
-</html>
-`)
-
-	return articleHTML.String()
-}
 
 func githubTrendingHTMLBuilder(projects []trending.Project) string {
 	var articleHTML strings.Builder
@@ -161,7 +65,7 @@ func githubTrendingHTMLBuilder(projects []trending.Project) string {
 	return articleHTML.String()
 }
 
-func sendFeedMail(rssURL string, subject string) error {
+func sendFeedMail(rssURL string, subject string, contentBuilder func(*gofeed.Feed) string) error {
 	parser := gofeed.NewParser()
 
 	feed, err := parser.ParseURL(rssURL)
@@ -178,7 +82,7 @@ func sendFeedMail(rssURL string, subject string) error {
 	return sendMail(
 		os.Getenv("GMAIL_ADDRESS"),
 		subject,
-		htmlBuilder(feed),
+		contentBuilder(feed),
 	)
 }
 
@@ -216,6 +120,12 @@ func githubTrending(dateRange, language string) error {
 	)
 }
 
+type RSSConfig struct {
+	URL         string
+	Subject     string
+	HTMLBuilder func(*gofeed.Feed) string
+}
+
 func run() error {
 	if err := godotenv.Load(); err != nil {
 		fmt.Println(".env not found, using environment variables")
@@ -229,26 +139,47 @@ func run() error {
 		return err
 	}
 
-	rssList := []map[string]string{
+	rssList := []RSSConfig{
 		{
-			"url":     "https://b.hatena.ne.jp/hotentry/it.rss",
-			"subject": "はてブ【カテゴリ: IT】",
+			URL:         "https://b.hatena.ne.jp/hotentry/it.rss",
+			Subject:     "はてブ【カテゴリ: IT】",
+			HTMLBuilder: hatenaHotentryHTMLBuilder,
 		},
 		{
-			"url":     "https://b.hatena.ne.jp/hotentry/all.rss",
-			"subject": "はてブ【カテゴリ: 総合】",
+			URL:         "https://b.hatena.ne.jp/hotentry/all.rss",
+			Subject:     "はてブ【カテゴリ: 総合】",
+			HTMLBuilder: hatenaHotentryHTMLBuilder,
+		},
+		{
+			URL:         "https://news.web.nhk/n-data/conf/na/rss/cat0.xml",
+			Subject:     "NHK News【カテゴリ: 総合】",
+			HTMLBuilder: nhknewsHTMLBuilder,
+		},
+		{
+			URL:         "https://news.web.nhk/n-data/conf/na/rss/cat2.xml",
+			Subject:     "NHK News【カテゴリ: 暮らし】",
+			HTMLBuilder: nhknewsHTMLBuilder,
 		},
 	}
+
+	var g errgroup.Group
 
 	for _, rss := range rssList {
-		if err := sendFeedMail(rss["url"], rss["subject"]); err != nil {
-			return err
-		}
+		g.Go(func() error {
+			return sendFeedMail(rss.URL, rss.Subject, rss.HTMLBuilder)
+		})
 	}
 
-	return nil
+	return g.Wait()
 }
 
 func main() {
-	lambda.Start(run)
+	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
+		lambda.Start(run)
+		return
+	} else {
+		if err := run(); err != nil {
+			log.Fatal(err)
+		}
+	}
 }
